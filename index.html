@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>関数グラフ・シミュレーター</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Chart.js (バージョン指定で安定化) -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    
+    <style>
+        /* 数式表示用のカスタムCSS */
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700&family=Roboto+Mono:wght@500&display=swap');
+
+        body {
+            font-family: 'Noto Sans JP', sans-serif;
+            background-color: #f0f4f8;
+        }
+
+        .math-display {
+            font-family: 'Times New Roman', 'Roboto Mono', serif;
+            font-style: italic;
+            font-size: 2rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 80px;
+        }
+
+        /* 分数表示のスタイル */
+        .fraction {
+            display: inline-flex;
+            flex-direction: column;
+            align-items: center;
+            vertical-align: middle;
+            margin: 0 4px;
+            font-style: normal;
+        }
+        .fraction-top {
+            border-bottom: 2px solid #000;
+            padding: 0 4px;
+            line-height: 1.2;
+        }
+        .fraction-bottom {
+            padding: 0 4px;
+            line-height: 1.2;
+        }
+        .operator {
+            margin: 0 8px;
+            font-style: normal;
+        }
+        /* スライダーのカスタマイズ */
+        input[type=range] {
+            accent-color: #3b82f6;
+        }
+        /* タブのアクティブスタイル */
+        .tab-btn.active {
+            background-color: #3b82f6;
+            color: white;
+            border-color: #3b82f6;
+        }
+    </style>
+</head>
+<body class="text-gray-800">
+
+    <div class="max-w-4xl mx-auto p-4">
+        <!-- ヘッダー -->
+        <header class="text-center mb-6">
+            <h1 class="text-2xl font-bold text-gray-700">関数グラフ・シミュレーター</h1>
+            <p class="text-sm text-gray-500 mt-1">係数を動かして、グラフの形の変化を観察しよう</p>
+        </header>
+
+        <!-- 関数選択タブ -->
+        <div class="flex justify-center space-x-2 mb-6 overflow-x-auto">
+            <button onclick="setFunctionType('proportional')" class="tab-btn active px-4 py-2 border rounded-full text-sm font-bold transition duration-200 hover:bg-blue-100 border-gray-300 bg-white">
+                比例 (y = ax)
+            </button>
+            <button onclick="setFunctionType('inverse')" class="tab-btn px-4 py-2 border rounded-full text-sm font-bold transition duration-200 hover:bg-blue-100 border-gray-300 bg-white">
+                反比例 (y = a/x)
+            </button>
+            <button onclick="setFunctionType('linear')" class="tab-btn px-4 py-2 border rounded-full text-sm font-bold transition duration-200 hover:bg-blue-100 border-gray-300 bg-white">
+                一次関数 (y = ax + b)
+            </button>
+            <button onclick="setFunctionType('quadratic')" class="tab-btn px-4 py-2 border rounded-full text-sm font-bold transition duration-200 hover:bg-blue-100 border-gray-300 bg-white">
+                二次関数 (y = ax²)
+            </button>
+        </div>
+
+        <!-- コントロールパネル -->
+        <div class="bg-white p-6 rounded-xl shadow-md mb-6">
+            <!-- 数式表示エリア -->
+            <div id="equation-display" class="math-display mb-6 text-gray-800 bg-gray-50 rounded-lg border border-gray-200">
+                y = x
+            </div>
+
+            <!-- スライダーエリア -->
+            <div class="space-y-6 max-w-lg mx-auto">
+                <!-- 係数 a のコントロール -->
+                <div class="flex items-center space-x-4">
+                    <label class="w-12 font-bold text-lg text-blue-600">a =</label>
+                    <input type="range" id="slider-a" min="-10" max="10" step="0.1" value="1" 
+                           class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer">
+                    <span id="val-a" class="w-12 text-right font-mono font-bold">1.0</span>
+                </div>
+
+                <!-- 切片 b のコントロール (初期状態は非表示) -->
+                <div id="control-b" class="flex items-center space-x-4 hidden">
+                    <label class="w-12 font-bold text-lg text-green-600">b =</label>
+                    <input type="range" id="slider-b" min="-10" max="10" step="0.1" value="0" 
+                           class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer">
+                    <span id="val-b" class="w-12 text-right font-mono font-bold">0.0</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- グラフエリア -->
+        <div class="bg-white p-2 rounded-xl shadow-md relative">
+            <div class="aspect-square max-h-[600px] mx-auto">
+                <canvas id="graphCanvas"></canvas>
+            </div>
+        </div>
+        
+        <!-- フッター -->
+        <footer class="text-center mt-8 text-gray-400 text-xs pb-4">
+            <p>© 2024 Math Graph Simulator. Created for Junior High School Mathematics.</p>
+        </footer>
+    </div>
+
+    <script>
+        // --- アプリケーションの状態管理 ---
+        const state = {
+            type: 'proportional', // proportional, inverse, linear, quadratic
+            a: 1.0,
+            b: 0.0
+        };
+
+        // --- DOM要素の取得 ---
+        const sliderA = document.getElementById('slider-a');
+        const sliderB = document.getElementById('slider-b');
+        const valA = document.getElementById('val-a');
+        const valB = document.getElementById('val-b');
+        const controlB = document.getElementById('control-b');
+        const equationDisplay = document.getElementById('equation-display');
+        const tabBtns = document.querySelectorAll('.tab-btn');
+
+        // --- Chart.js の初期化 ---
+        const ctx = document.getElementById('graphCanvas').getContext('2d');
+        
+        // 十字軸を描画するプラグイン
+        const axisPlugin = {
+            id: 'axisPlugin',
+            afterDraw: (chart) => {
+                const {ctx, chartArea: {left, right, top, bottom}, scales: {x, y}} = chart;
+                
+                // 原点の座標を取得
+                const zeroX = x.getPixelForValue(0);
+                const zeroY = y.getPixelForValue(0);
+
+                ctx.save();
+                ctx.lineWidth = 2;
+                ctx.strokeStyle = '#333333'; // 濃いグレー（軸の色）
+
+                // X軸の描画 (y=0のライン)
+                // 範囲内にある場合のみ描画
+                if (zeroY >= top && zeroY <= bottom) {
+                    ctx.beginPath();
+                    ctx.moveTo(left, zeroY);
+                    ctx.lineTo(right, zeroY);
+                    ctx.stroke();
+                }
+
+                // Y軸の描画 (x=0のライン)
+                if (zeroX >= left && zeroX <= right) {
+                    ctx.beginPath();
+                    ctx.moveTo(zeroX, top);
+                    ctx.lineTo(zeroX, bottom);
+                    ctx.stroke();
+                }
+
+                ctx.restore();
+            }
+        };
+
+        const chart = new Chart(ctx, {
+            type: 'scatter', // 線形グラフにはscatterを使用し、showLine:trueにするのが座標系では確実
+            data: {
+                datasets: [{
+                    label: 'グラフ',
+                    borderColor: '#3b82f6', // 青色
+                    borderWidth: 3,
+                    pointRadius: 0, // 点を描画しない
+                    showLine: true, // 散布図だが線でつなぐ
+                    fill: false,
+                    tension: 0.4, // 滑らかな曲線
+                    data: [] // {x: number, y: number}[]
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: true,
+                aspectRatio: 1, // 正方形を維持
+                animation: {
+                    duration: 0 // 高速化のためアニメーションオフ
+                },
+                scales: {
+                    x: {
+                        type: 'linear', // 【重要】数値を座標として扱う
+                        min: -10,
+                        max: 10,
+                        position: 'center', // 軸ラベルを中心にしたいがChart.js v4では効かないためプラグインで線を引く
+                        grid: {
+                            color: '#e5e7eb', // グリッド線は薄く
+                            drawBorder: false, // デフォルトの枠線を消す
+                        },
+                        ticks: {
+                            stepSize: 1,
+                            callback: (v) => v === 0 ? '' : v, // 0は軸と被るので消す
+                            color: '#666',
+                            font: { size: 10 }
+                        },
+                        border: { display: false } // 外枠を消す
+                    },
+                    y: {
+                        type: 'linear', // 【重要】
+                        min: -10,
+                        max: 10,
+                        grid: {
+                            color: '#e5e7eb',
+                            drawBorder: false,
+                        },
+                        ticks: {
+                            stepSize: 1,
+                            callback: (v) => v === 0 ? '' : v,
+                            color: '#666',
+                            font: { size: 10 }
+                        },
+                        border: { display: false }
+                    }
+                },
+                plugins: {
+                    legend: { display: false },
+                    tooltip: { enabled: false }
+                }
+            },
+            plugins: [axisPlugin] // 十字軸プラグイン
+        });
+
+        // --- 数学ユーティリティ関数 ---
+
+        function gcd(a, b) {
+            return b === 0 ? a : gcd(b, a % b);
+        }
+
+        function toFraction(value) {
+            const sign = value < 0 ? -1 : 1;
+            const absVal = Math.abs(value);
+            
+            if (Number.isInteger(absVal)) {
+                return { n: absVal, d: 1, sign: sign };
+            }
+
+            // 小数点以下1桁前提
+            const num = Math.round(absVal * 10);
+            const den = 10;
+            const common = gcd(num, den);
+
+            return {
+                n: num / common,
+                d: den / common,
+                sign: sign
+            };
+        }
+
+        // --- 数式生成ロジック ---
+        function generateEquationHTML() {
+            const { type, a, b } = state;
+            const fracA = toFraction(a);
+
+            let html = `y = `;
+
+            if (type !== 'linear' && a === 0) return `y = 0`;
+            if (type === 'linear' && a === 0 && b === 0) return `y = 0`;
+
+            const buildTermA = (variablePart) => {
+                if (a === 0) return ''; 
+
+                let term = '';
+                const signStr = fracA.sign < 0 ? '<span class="operator">-</span>' : '';
+
+                if (type === 'inverse') {
+                    term += signStr;
+                    term += `<div class="fraction">
+                                <span class="fraction-top">${fracA.n}</span>
+                                <span class="fraction-bottom">${fracA.d === 1 ? 'x' : fracA.d + 'x'}</span>
+                             </div>`;
+                } else {
+                    term += signStr;
+                    if (fracA.d === 1) {
+                        if (fracA.n !== 1) term += fracA.n; 
+                    } else {
+                        term += `<div class="fraction">
+                                    <span class="fraction-top">${fracA.n}</span>
+                                    <span class="fraction-bottom">${fracA.d}</span>
+                                 </div>`;
+                    }
+                    term += variablePart;
+                }
+                return term;
+            };
+
+            if (type === 'proportional') {
+                html += buildTermA('x');
+                if (a === 0) html = 'y = 0';
+            } 
+            else if (type === 'inverse') {
+                if (a === 0) {
+                    html = 'y = 0';
+                } else {
+                    html += buildTermA('');
+                }
+            } 
+            else if (type === 'linear') {
+                const termA = buildTermA('x');
+                let termB = '';
+                if (b !== 0) {
+                    if (b > 0) {
+                        termB = termA ? ` <span class="operator">+</span> ${b}` : `${b}`;
+                    } else {
+                        termB = ` <span class="operator">-</span> ${Math.abs(b)}`;
+                    }
+                }
+                if (!termA && !termB) html = 'y = 0';
+                else html += termA + termB;
+            } 
+            else if (type === 'quadratic') {
+                html += buildTermA('x²');
+                if (a === 0) html = 'y = 0';
+            }
+
+            return html;
+        }
+
+        // --- グラフデータ生成ロジック (修正版) ---
+        function generateGraphData() {
+            const { type, a, b } = state;
+            const data = [];
+            
+            // 整数ループを使用することで浮動小数点の蓄積誤差を防ぐ
+            // 範囲: -100(x=-10) から 100(x=10) まで
+            // 反比例の場合はより細かく
+            
+            const stepCount = type === 'inverse' ? 400 : 200; // 反比例は高解像度
+            const range = 10;
+            
+            if (type === 'inverse') {
+                if (a === 0) {
+                     data.push({x: -10, y: 0}, {x: 10, y: 0});
+                     return data;
+                }
+
+                // 負の側
+                for (let i = -stepCount; i < 0; i++) {
+                    const x = (i / stepCount) * range; 
+                    if (x === 0) continue; // 0除算防止
+                    const y = a / x;
+                    
+                    // 描画範囲外(y > 15など)でも、線をつなぐために一点だけは残したいが、
+                    // Chart.jsで枠外に線が飛び出すのを防ぐため、一定以上はnullにするか
+                    // max/minでクランプする方法もある。
+                    // ここではシンプルに絶対値が大きすぎる場合は無効値とする（線が切れる）
+                    if (Math.abs(y) > 20) {
+                        // 境界付近の点を追加して切る
+                        // data.push({x: x, y: y > 0 ? 20 : -20}); 
+                        // 今回はシンプルに含めない
+                    } else {
+                        data.push({x: x, y: y});
+                    }
+                }
+                
+                // 漸近線で線を切るためのnull
+                data.push({x: 0, y: null});
+
+                // 正の側
+                for (let i = 1; i <= stepCount; i++) {
+                    const x = (i / stepCount) * range;
+                    const y = a / x;
+                    if (Math.abs(y) <= 20) {
+                        data.push({x: x, y: y});
+                    }
+                }
+
+            } else {
+                // 通常関数
+                for (let i = -100; i <= 100; i++) {
+                    const x = i / 10;
+                    // x=0のズレを防ぐため明示的に整数から計算
+                    
+                    let y = 0;
+                    if (type === 'proportional') y = a * x;
+                    else if (type === 'linear') y = a * x + b;
+                    else if (type === 'quadratic') y = a * x * x;
+                    
+                    data.push({x: x, y: y});
+                }
+            }
+            return data;
+        }
+
+        // --- メイン更新処理 ---
+        function update() {
+            state.a = parseFloat(sliderA.value);
+            state.b = parseFloat(sliderB.value);
+
+            valA.textContent = state.a.toFixed(1);
+            valB.textContent = state.b.toFixed(1);
+
+            equationDisplay.innerHTML = generateEquationHTML();
+
+            chart.data.datasets[0].data = generateGraphData();
+            
+            // 反比例のときはtensionを0に近づけないと漸近線付近が歪むことがあるが、
+            // ポイント数が十分なら0.4でも綺麗。ここでは適宜調整。
+            chart.data.datasets[0].tension = state.type === 'inverse' ? 0.2 : 0.4;
+            
+            chart.update();
+        }
+
+        // --- イベントハンドラ ---
+        function setFunctionType(selectedType) {
+            state.type = selectedType;
+            
+            tabBtns.forEach(btn => btn.classList.remove('active', 'bg-blue-600', 'text-white'));
+            
+            // インデックス検索
+            const types = ['proportional', 'inverse', 'linear', 'quadratic'];
+            const idx = types.indexOf(selectedType);
+            if(idx !== -1) {
+                tabBtns[idx].classList.add('active');
+            }
+
+            if (selectedType === 'linear') {
+                controlB.classList.remove('hidden');
+            } else {
+                controlB.classList.add('hidden');
+                state.b = 0;
+                sliderB.value = 0;
+            }
+
+            if (state.a === 0 && selectedType === 'inverse') {
+                state.a = 1;
+                sliderA.value = 1;
+            }
+            
+            update();
+        }
+
+        sliderA.addEventListener('input', update);
+        sliderB.addEventListener('input', update);
+
+        // 初期化
+        // DOM読み込み後に実行
+        window.addEventListener('DOMContentLoaded', () => {
+             update();
+        });
+
+    </script>
+</body>
+</html>
