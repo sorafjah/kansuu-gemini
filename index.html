@@ -6,7 +6,7 @@
     <title>関数グラフ・シミュレーター</title>
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Chart.js (バージョン指定で安定化) -->
+    <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
     
     <style>
@@ -99,17 +99,15 @@
                 <!-- 係数 a のコントロール -->
                 <div class="flex items-center space-x-4">
                     <label class="w-12 font-bold text-lg text-blue-600">a =</label>
-                    <input type="range" id="slider-a" min="-10" max="10" step="0.1" value="1" 
-                           class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer">
-                    <span id="val-a" class="w-12 text-right font-mono font-bold">1.0</span>
+                    <input type="range" id="slider-a" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer">
+                    <span id="val-a" class="w-16 text-right font-mono font-bold">1</span>
                 </div>
 
                 <!-- 切片 b のコントロール (初期状態は非表示) -->
                 <div id="control-b" class="flex items-center space-x-4 hidden">
                     <label class="w-12 font-bold text-lg text-green-600">b =</label>
-                    <input type="range" id="slider-b" min="-10" max="10" step="0.1" value="0" 
-                           class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer">
-                    <span id="val-b" class="w-12 text-right font-mono font-bold">0.0</span>
+                    <input type="range" id="slider-b" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer">
+                    <span id="val-b" class="w-16 text-right font-mono font-bold">0</span>
                 </div>
             </div>
         </div>
@@ -128,12 +126,65 @@
     </div>
 
     <script>
+        // --- ユーティリティ関数 (最大公約数) ---
+        // 係数リスト生成前に定義が必要
+        function gcd(a, b) {
+            return b === 0 ? a : gcd(b, a % b);
+        }
+
         // --- アプリケーションの状態管理 ---
         const state = {
             type: 'proportional', // proportional, inverse, linear, quadratic
-            a: 1.0,
-            b: 0.0
+            a: { val: 1.0, n: 1, d: 1, sign: 1 },
+            b: { val: 0.0, n: 0, d: 1, sign: 1 }
         };
+
+        // --- 係数リストの生成 (わかりやすい数字限定版) ---
+        // 整数および "分母・分子ともに10以下" の分数を生成
+        const fractionList = [];
+        const seenValues = new Set();
+
+        // 1. まず整数を追加 (-10 ～ 10)
+        for (let i = -10; i <= 10; i++) {
+            fractionList.push({ val: i, n: Math.abs(i), d: 1, sign: i === 0 ? 1 : Math.sign(i) });
+            seenValues.add(i.toFixed(10)); // 重複防止用のキー
+        }
+
+        // 2. 分数を追加 (分母2～10)
+        // 中学生向けの説明用として、分子も10以下に限定する（31/9などは除外）
+        for (let d = 2; d <= 10; d++) {
+            for (let n = 1; n <= 10; n++) { 
+                
+                // 約分処理
+                const common = gcd(n, d);
+                const simpleN = n / common;
+                const simpleD = d / common;
+
+                // 約分した結果、分母が1になる（＝整数）場合はスキップ
+                // (すでにステップ1で追加済みのため)
+                if (simpleD === 1) continue;
+
+                const val = simpleN / simpleD;
+                
+                // 正の数
+                let key = val.toFixed(10);
+                if (!seenValues.has(key)) {
+                    fractionList.push({ val: val, n: simpleN, d: simpleD, sign: 1 });
+                    seenValues.add(key);
+                }
+
+                // 負の数
+                key = (-val).toFixed(10);
+                if (!seenValues.has(key)) {
+                    fractionList.push({ val: -val, n: simpleN, d: simpleD, sign: -1 });
+                    seenValues.add(key);
+                }
+            }
+        }
+
+        // 3. 値の小さい順にソート
+        fractionList.sort((a, b) => a.val - b.val);
+
 
         // --- DOM要素の取得 ---
         const sliderA = document.getElementById('slider-a');
@@ -144,25 +195,39 @@
         const equationDisplay = document.getElementById('equation-display');
         const tabBtns = document.querySelectorAll('.tab-btn');
 
+        // --- スライダーの初期化 ---
+        function initSliders() {
+            const maxIdx = fractionList.length - 1;
+            
+            // a, b 両方のスライダー設定
+            [sliderA, sliderB].forEach(slider => {
+                slider.min = 0;
+                slider.max = maxIdx;
+                slider.step = 1;
+            });
+
+            // 初期位置の設定 (a=1, b=0)
+            const idx1 = fractionList.findIndex(f => f.val === 1);
+            const idx0 = fractionList.findIndex(f => f.val === 0);
+            
+            sliderA.value = idx1 !== -1 ? idx1 : Math.floor(maxIdx/2);
+            sliderB.value = idx0 !== -1 ? idx0 : Math.floor(maxIdx/2);
+        }
+
         // --- Chart.js の初期化 ---
         const ctx = document.getElementById('graphCanvas').getContext('2d');
         
-        // 十字軸を描画するプラグイン
         const axisPlugin = {
             id: 'axisPlugin',
             afterDraw: (chart) => {
                 const {ctx, chartArea: {left, right, top, bottom}, scales: {x, y}} = chart;
-                
-                // 原点の座標を取得
                 const zeroX = x.getPixelForValue(0);
                 const zeroY = y.getPixelForValue(0);
 
                 ctx.save();
                 ctx.lineWidth = 2;
-                ctx.strokeStyle = '#333333'; // 濃いグレー（軸の色）
+                ctx.strokeStyle = '#333333';
 
-                // X軸の描画 (y=0のライン)
-                // 範囲内にある場合のみ描画
                 if (zeroY >= top && zeroY <= bottom) {
                     ctx.beginPath();
                     ctx.moveTo(left, zeroY);
@@ -170,138 +235,99 @@
                     ctx.stroke();
                 }
 
-                // Y軸の描画 (x=0のライン)
                 if (zeroX >= left && zeroX <= right) {
                     ctx.beginPath();
                     ctx.moveTo(zeroX, top);
                     ctx.lineTo(zeroX, bottom);
                     ctx.stroke();
                 }
-
                 ctx.restore();
             }
         };
 
         const chart = new Chart(ctx, {
-            type: 'scatter', // 線形グラフにはscatterを使用し、showLine:trueにするのが座標系では確実
+            type: 'scatter', 
             data: {
                 datasets: [{
                     label: 'グラフ',
-                    borderColor: '#3b82f6', // 青色
+                    borderColor: '#3b82f6', 
                     borderWidth: 3,
-                    pointRadius: 0, // 点を描画しない
-                    showLine: true, // 散布図だが線でつなぐ
+                    pointRadius: 0, 
+                    showLine: true, 
                     fill: false,
-                    tension: 0.4, // 滑らかな曲線
-                    data: [] // {x: number, y: number}[]
+                    tension: 0.4, 
+                    data: [] 
                 }]
             },
             options: {
                 responsive: true,
                 maintainAspectRatio: true,
-                aspectRatio: 1, // 正方形を維持
-                animation: {
-                    duration: 0 // 高速化のためアニメーションオフ
-                },
+                aspectRatio: 1, 
+                animation: { duration: 0 },
                 scales: {
                     x: {
-                        type: 'linear', // 【重要】数値を座標として扱う
-                        min: -10,
-                        max: 10,
-                        position: 'center', // 軸ラベルを中心にしたいがChart.js v4では効かないためプラグインで線を引く
-                        grid: {
-                            color: '#e5e7eb', // グリッド線は薄く
-                            drawBorder: false, // デフォルトの枠線を消す
-                        },
-                        ticks: {
-                            stepSize: 1,
-                            callback: (v) => v === 0 ? '' : v, // 0は軸と被るので消す
-                            color: '#666',
-                            font: { size: 10 }
-                        },
-                        border: { display: false } // 外枠を消す
+                        type: 'linear', 
+                        min: -10, max: 10,
+                        position: 'center',
+                        grid: { color: '#e5e7eb', drawBorder: false },
+                        ticks: { stepSize: 1, callback: (v) => v === 0 ? '' : v, color: '#666', font: { size: 10 } },
+                        border: { display: false }
                     },
                     y: {
-                        type: 'linear', // 【重要】
-                        min: -10,
-                        max: 10,
-                        grid: {
-                            color: '#e5e7eb',
-                            drawBorder: false,
-                        },
-                        ticks: {
-                            stepSize: 1,
-                            callback: (v) => v === 0 ? '' : v,
-                            color: '#666',
-                            font: { size: 10 }
-                        },
+                        type: 'linear',
+                        min: -10, max: 10,
+                        grid: { color: '#e5e7eb', drawBorder: false },
+                        ticks: { stepSize: 1, callback: (v) => v === 0 ? '' : v, color: '#666', font: { size: 10 } },
                         border: { display: false }
                     }
                 },
-                plugins: {
-                    legend: { display: false },
-                    tooltip: { enabled: false }
-                }
+                plugins: { legend: { display: false }, tooltip: { enabled: false } }
             },
-            plugins: [axisPlugin] // 十字軸プラグイン
+            plugins: [axisPlugin] 
         });
-
-        // --- 数学ユーティリティ関数 ---
-
-        function gcd(a, b) {
-            return b === 0 ? a : gcd(b, a % b);
-        }
-
-        function toFraction(value) {
-            const sign = value < 0 ? -1 : 1;
-            const absVal = Math.abs(value);
-            
-            if (Number.isInteger(absVal)) {
-                return { n: absVal, d: 1, sign: sign };
-            }
-
-            // 小数点以下1桁前提
-            const num = Math.round(absVal * 10);
-            const den = 10;
-            const common = gcd(num, den);
-
-            return {
-                n: num / common,
-                d: den / common,
-                sign: sign
-            };
-        }
 
         // --- 数式生成ロジック ---
         function generateEquationHTML() {
             const { type, a, b } = state;
-            const fracA = toFraction(a);
 
             let html = `y = `;
 
-            if (type !== 'linear' && a === 0) return `y = 0`;
-            if (type === 'linear' && a === 0 && b === 0) return `y = 0`;
+            if (type !== 'linear' && a.val === 0) return `y = 0`;
+            if (type === 'linear' && a.val === 0 && b.val === 0) return `y = 0`;
 
-            const buildTermA = (variablePart) => {
-                if (a === 0) return ''; 
+            const buildTerm = (coeff, variablePart, isFirstTerm) => {
+                if (coeff.val === 0) return ''; 
 
                 let term = '';
-                const signStr = fracA.sign < 0 ? '<span class="operator">-</span>' : '';
+                
+                if (coeff.val < 0) {
+                    term += '<span class="operator">-</span>';
+                } else if (!isFirstTerm) {
+                    term += '<span class="operator">+</span>';
+                }
 
-                if (type === 'inverse') {
-                    term += signStr;
-                    term += `<div class="fraction">
-                                <span class="fraction-top">${fracA.n}</span>
-                                <span class="fraction-bottom">${fracA.d === 1 ? 'x' : fracA.d + 'x'}</span>
+                // 反比例 (y = a/x)
+                if (type === 'inverse' && variablePart === '') {
+                     const bottomText = coeff.d === 1 ? 'x' : coeff.d + 'x';
+                     term += `<div class="fraction">
+                                <span class="fraction-top">${coeff.n}</span>
+                                <span class="fraction-bottom">${bottomText}</span>
                              </div>`;
                 } else {
-                    term += signStr;
-                    if (fracA.d === 1) {
-                        if (fracA.n !== 1) term += fracA.n; 
+                    // 通常
+                    if (coeff.d === 1) {
+                        // 係数が1で変数がつく場合
+                        if (variablePart !== '') {
+                            if (coeff.n !== 1) term += coeff.n;
+                        } else {
+                            // 定数項は1でも表示
+                            term += coeff.n;
+                        }
                     } else {
+                        // 分数
                         term += `<div class="fraction">
-                                    <span class="fraction-top">${fracA.n}</span>
-                                    <span class="fraction-bottom">${fracA.d}</span>
+                                    <span class="fraction-top">${coeff.n}</span>
+                                    <span class="fraction-bottom">${coeff.d}</span>
                                  </div>`;
                     }
                     term += variablePart;
@@ -310,96 +336,93 @@
             };
 
             if (type === 'proportional') {
-                html += buildTermA('x');
-                if (a === 0) html = 'y = 0';
+                html += buildTerm(a, 'x', true);
+                if (a.val === 0) html = 'y = 0';
             } 
             else if (type === 'inverse') {
-                if (a === 0) {
+                if (a.val === 0) {
                     html = 'y = 0';
                 } else {
-                    html += buildTermA('');
+                    html += buildTerm(a, '', true); 
                 }
             } 
             else if (type === 'linear') {
-                const termA = buildTermA('x');
-                let termB = '';
-                if (b !== 0) {
-                    if (b > 0) {
-                        termB = termA ? ` <span class="operator">+</span> ${b}` : `${b}`;
-                    } else {
-                        termB = ` <span class="operator">-</span> ${Math.abs(b)}`;
-                    }
-                }
-                if (!termA && !termB) html = 'y = 0';
+                const termA = buildTerm(a, 'x', true);
+                const isBFirst = (termA === '');
+                const termB = buildTerm(b, '', isBFirst);
+
+                if (termA === '' && termB === '') html = 'y = 0';
                 else html += termA + termB;
             } 
             else if (type === 'quadratic') {
-                html += buildTermA('x²');
-                if (a === 0) html = 'y = 0';
+                html += buildTerm(a, 'x²', true);
+                if (a.val === 0) html = 'y = 0';
             }
 
             return html;
         }
 
-        // --- グラフデータ生成ロジック (修正版) ---
+        // --- グラフデータ生成ロジック ---
         function generateGraphData() {
             const { type, a, b } = state;
+            const valA = a.val;
+            const valB = b.val;
             const data = [];
             
-            // 整数ループを使用することで浮動小数点の蓄積誤差を防ぐ
-            // 範囲: -100(x=-10) から 100(x=10) まで
-            // 反比例の場合はより細かく
-            
-            const stepCount = type === 'inverse' ? 400 : 200; // 反比例は高解像度
+            const stepCount = type === 'inverse' ? 400 : 200; 
             const range = 10;
             
             if (type === 'inverse') {
-                if (a === 0) {
+                if (valA === 0) {
                      data.push({x: -10, y: 0}, {x: 10, y: 0});
                      return data;
                 }
 
+                const negData = [];
+                const posData = [];
+
+                // 1. 通常のサンプリング (等間隔)
                 // 負の側
                 for (let i = -stepCount; i < 0; i++) {
                     const x = (i / stepCount) * range; 
-                    if (x === 0) continue; // 0除算防止
-                    const y = a / x;
-                    
-                    // 描画範囲外(y > 15など)でも、線をつなぐために一点だけは残したいが、
-                    // Chart.jsで枠外に線が飛び出すのを防ぐため、一定以上はnullにするか
-                    // max/minでクランプする方法もある。
-                    // ここではシンプルに絶対値が大きすぎる場合は無効値とする（線が切れる）
-                    if (Math.abs(y) > 20) {
-                        // 境界付近の点を追加して切る
-                        // data.push({x: x, y: y > 0 ? 20 : -20}); 
-                        // 今回はシンプルに含めない
-                    } else {
-                        data.push({x: x, y: y});
-                    }
+                    const y = valA / x;
+                    if (Math.abs(y) <= 20) negData.push({x: x, y: y});
                 }
-                
-                // 漸近線で線を切るためのnull
-                data.push({x: 0, y: null});
-
                 // 正の側
                 for (let i = 1; i <= stepCount; i++) {
                     const x = (i / stepCount) * range;
-                    const y = a / x;
-                    if (Math.abs(y) <= 20) {
-                        data.push({x: x, y: y});
-                    }
+                    const y = valA / x;
+                    if (Math.abs(y) <= 20) posData.push({x: x, y: y});
                 }
 
+                // 2. 端まで描画するための補完ポイント追加
+                // y = 20, y = -20 となる x を逆算して追加する
+                // これにより、aが小さくても必ずy=20の高さまで線が伸びる
+                const targets = [20, -20];
+                targets.forEach(targetY => {
+                    const targetX = valA / targetY;
+                    // 計算したxが描画範囲内(-10~10)なら追加
+                    if (targetX >= -10 && targetX <= 10) {
+                        const pt = {x: targetX, y: targetY};
+                        if (targetX < 0) negData.push(pt);
+                        else if (targetX > 0) posData.push(pt);
+                    }
+                });
+
+                // 3. x順にソート (追加したポイントを正しい順序にするため)
+                negData.sort((p1, p2) => p1.x - p2.x);
+                posData.sort((p1, p2) => p1.x - p2.x);
+
+                // 4. 結合 (間にnullを挟んで線を切る)
+                return [...negData, {x: 0, y: null}, ...posData];
+
             } else {
-                // 通常関数
                 for (let i = -100; i <= 100; i++) {
                     const x = i / 10;
-                    // x=0のズレを防ぐため明示的に整数から計算
-                    
                     let y = 0;
-                    if (type === 'proportional') y = a * x;
-                    else if (type === 'linear') y = a * x + b;
-                    else if (type === 'quadratic') y = a * x * x;
+                    if (type === 'proportional') y = valA * x;
+                    else if (type === 'linear') y = valA * x + valB;
+                    else if (type === 'quadratic') y = valA * x * x;
                     
                     data.push({x: x, y: y});
                 }
@@ -409,20 +432,25 @@
 
         // --- メイン更新処理 ---
         function update() {
-            state.a = parseFloat(sliderA.value);
-            state.b = parseFloat(sliderB.value);
+            const idxA = parseInt(sliderA.value);
+            const idxB = parseInt(sliderB.value);
+            
+            state.a = fractionList[idxA];
+            state.b = fractionList[idxB];
 
-            valA.textContent = state.a.toFixed(1);
-            valB.textContent = state.b.toFixed(1);
+            const formatVal = (obj) => {
+                if (obj.d === 1) return obj.val.toFixed(0);
+                const sign = obj.sign < 0 ? '-' : '';
+                return `${sign}${obj.n}/${obj.d}`; 
+            };
+
+            valA.textContent = formatVal(state.a);
+            valB.textContent = formatVal(state.b);
 
             equationDisplay.innerHTML = generateEquationHTML();
 
             chart.data.datasets[0].data = generateGraphData();
-            
-            // 反比例のときはtensionを0に近づけないと漸近線付近が歪むことがあるが、
-            // ポイント数が十分なら0.4でも綺麗。ここでは適宜調整。
             chart.data.datasets[0].tension = state.type === 'inverse' ? 0.2 : 0.4;
-            
             chart.update();
         }
 
@@ -432,7 +460,6 @@
             
             tabBtns.forEach(btn => btn.classList.remove('active', 'bg-blue-600', 'text-white'));
             
-            // インデックス検索
             const types = ['proportional', 'inverse', 'linear', 'quadratic'];
             const idx = types.indexOf(selectedType);
             if(idx !== -1) {
@@ -443,13 +470,15 @@
                 controlB.classList.remove('hidden');
             } else {
                 controlB.classList.add('hidden');
-                state.b = 0;
-                sliderB.value = 0;
+                const idx0 = fractionList.findIndex(f => f.val === 0);
+                sliderB.value = idx0;
+                state.b = fractionList[idx0];
             }
 
-            if (state.a === 0 && selectedType === 'inverse') {
-                state.a = 1;
-                sliderA.value = 1;
+            if (state.a.val === 0 && selectedType === 'inverse') {
+                const idx1 = fractionList.findIndex(f => f.val === 1);
+                sliderA.value = idx1;
+                state.a = fractionList[idx1];
             }
             
             update();
@@ -458,8 +487,7 @@
         sliderA.addEventListener('input', update);
         sliderB.addEventListener('input', update);
 
-        // 初期化
-        // DOM読み込み後に実行
+        initSliders();
         window.addEventListener('DOMContentLoaded', () => {
              update();
         });
