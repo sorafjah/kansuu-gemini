@@ -89,11 +89,11 @@
         </div>
 
         <!-- ★ ここから：左(操作) / 右(グラフ) レイアウト -->
-        <div class="grid md:grid-cols-12 gap-6 items-stretch">
+        <div class="grid md:grid-cols-12 gap-6 items-start">
 
             <!-- 左：操作パネル -->
             <div class="md:col-span-5">
-                <div class="bg-white p-6 rounded-xl shadow-md">
+                <div class="bg-white p-6 rounded-xl shadow-md h-full">
                     <!-- 数式表示エリア -->
                     <div id="equation-display" class="math-display mb-6 text-gray-800 bg-gray-50 rounded-lg border border-gray-200">
                         y = x
@@ -114,20 +114,15 @@
                             <input type="range" id="slider-b" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer">
                             <span id="val-b" class="w-16 text-right font-mono font-bold">0</span>
                         </div>
-
-                        <!-- ちょいメモ（任意） -->
-                        <div class="text-xs text-gray-500 leading-relaxed pt-2 border-t">
-                            <div>・反比例は 0 に近づくほど急に増減します（x=0 は描けません）。</div>
-                            <div>・一次関数だけ b（切片）が使えます。</div>
-                        </div>
                     </div>
                 </div>
             </div>
 
             <!-- 右：グラフ -->
             <div class="md:col-span-7">
-                <div class="bg-white p-3 rounded-xl shadow-md h-full">
-                    <div class="w-full h-[420px] md:h-[520px]">
+                <div class="bg-white p-3 rounded-xl shadow-md">
+                    <!-- アスペクト比を1:1 (正方形) に固定するコンテナ -->
+                    <div class="w-full aspect-square max-w-[600px] mx-auto relative">
                         <canvas id="graphCanvas"></canvas>
                     </div>
                 </div>
@@ -190,27 +185,27 @@
         }
 
         // 3. 追加：1/20, 1/30, 1/40, 1/50, 1/100, 1/500, 1/1000（とそのマイナス）
-//    ※ 1/10 は上のループ（d=10, n=1）で既に入ります
-const extraDenominators = [20, 30, 40, 50, 100, 500, 1000];
-extraDenominators.forEach(d => {
-    const val = 1 / d;
+        //    ※ 1/10 は上のループ（d=10, n=1）で既に入ります
+        const extraDenominators = [20, 30, 40, 50, 100, 500, 1000];
+        extraDenominators.forEach(d => {
+            const val = 1 / d;
 
-    // 正
-    let key = val.toFixed(10);
-    if (!seenValues.has(key)) {
-        fractionList.push({ val: val, n: 1, d: d, sign: 1 });
-        seenValues.add(key);
-    }
+            // 正
+            let key = val.toFixed(10);
+            if (!seenValues.has(key)) {
+                fractionList.push({ val: val, n: 1, d: d, sign: 1 });
+                seenValues.add(key);
+            }
 
-    // 負
-    key = (-val).toFixed(10);
-    if (!seenValues.has(key)) {
-        fractionList.push({ val: -val, n: 1, d: d, sign: -1 });
-        seenValues.add(key);
-    }
-});
+            // 負
+            key = (-val).toFixed(10);
+            if (!seenValues.has(key)) {
+                fractionList.push({ val: -val, n: 1, d: d, sign: -1 });
+                seenValues.add(key);
+            }
+        });
 
-fractionList.sort((a, b) => a.val - b.val);
+        fractionList.sort((a, b) => a.val - b.val);
 
         // --- DOM要素の取得 ---
         const sliderA = document.getElementById('slider-a');
@@ -240,6 +235,7 @@ fractionList.sort((a, b) => a.val - b.val);
         // --- Chart.js の初期化 ---
         const ctx = document.getElementById('graphCanvas').getContext('2d');
 
+        // 軸線（十字の線）を描画するプラグイン
         const axisPlugin = {
             id: 'axisPlugin',
             afterDraw: (chart) => {
@@ -249,8 +245,9 @@ fractionList.sort((a, b) => a.val - b.val);
 
                 ctx.save();
                 ctx.lineWidth = 2;
-                ctx.strokeStyle = '#333333';
+                ctx.strokeStyle = '#333333'; // 濃いグレーで軸を描画
 
+                // X軸 (y=0)
                 if (zeroY >= top && zeroY <= bottom) {
                     ctx.beginPath();
                     ctx.moveTo(left, zeroY);
@@ -258,6 +255,7 @@ fractionList.sort((a, b) => a.val - b.val);
                     ctx.stroke();
                 }
 
+                // Y軸 (x=0)
                 if (zeroX >= left && zeroX <= right) {
                     ctx.beginPath();
                     ctx.moveTo(zeroX, top);
@@ -284,22 +282,34 @@ fractionList.sort((a, b) => a.val - b.val);
             },
             options: {
                 responsive: true,
-                maintainAspectRatio: false,
+                maintainAspectRatio: true, // アスペクト比を維持
+                aspectRatio: 1,          // 正方形(1:1)にする
                 animation: { duration: 0 },
                 scales: {
                     x: {
                         type: 'linear',
                         min: -10, max: 10,
-                        position: 'center',
-                        grid: { color: '#e5e7eb', drawBorder: false },
-                        ticks: { stepSize: 1, callback: (v) => v === 0 ? '' : v, color: '#666', font: { size: 10 } },
-                        border: { display: false }
+                        position: 'bottom', // ★ X軸のメモリを下に表示
+                        grid: { color: '#e5e7eb', drawBorder: false }, // グリッド線
+                        ticks: { 
+                            stepSize: 1, 
+                            callback: (v) => v === 0 ? '' : v, // 0は表示しない（軸と被るため）
+                            color: '#666', 
+                            font: { size: 10 } 
+                        },
+                        border: { display: false } // Chart.js標準の軸線は消す(プラグインで描くため)
                     },
                     y: {
                         type: 'linear',
                         min: -10, max: 10,
+                        position: 'left', // ★ Y軸のメモリを左端に表示
                         grid: { color: '#e5e7eb', drawBorder: false },
-                        ticks: { stepSize: 1, callback: (v) => v === 0 ? '' : v, color: '#666', font: { size: 10 } },
+                        ticks: { 
+                            stepSize: 1, 
+                            callback: (v) => v === 0 ? '' : v, 
+                            color: '#666', 
+                            font: { size: 10 } 
+                        },
                         border: { display: false }
                     }
                 },
